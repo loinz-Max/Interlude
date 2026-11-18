@@ -1,0 +1,24 @@
+# Xcode
+LocalPlayer.xcodeproj/
+build/
+DerivedData/
+*.xcworkspace/
+xcuserdata/
+
+# 构建产物
+*.ipa
+Payload/
+*.dSYM.zip
+build.log
+release.log
+
+# CI 截图与发版说明只在本地临时存在
+/shots/
+/.release-notes-*.md
+
+# macOS
+.DS_Store
+
+# 本地打包 / 调试临时目录（.ci 放历史 ipa、build.log、截图备份）
+.ci/
+/out/
