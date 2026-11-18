@@ -2,14 +2,13 @@ import SwiftUI
 
 /// 设置的一级菜单
 enum SettingsPage: String, Hashable, CaseIterable, Identifiable {
-    case playback, interface, storage, about
+    case playback, storage, about
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .playback: return "播放"
-        case .interface: return "播放界面"
         case .storage: return "存储"
         case .about: return "关于"
         }
@@ -18,7 +17,6 @@ enum SettingsPage: String, Hashable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .playback: return "play.circle"
-        case .interface: return "rectangle.on.rectangle"
         case .storage: return "internaldrive"
         case .about: return "info.circle"
         }
@@ -73,7 +71,7 @@ struct SettingsView: View {
         .preferredColorScheme(.dark)
         .onAppear {
             #if DEBUG
-            // 截图用：-settings playback|interface|storage|about 直接进二级页
+            // 截图用：-settings playback|storage|about 直接进二级页
             if let raw = DebugSeed.argument(after: "-settings"),
                let page = SettingsPage(rawValue: raw) {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { path = [page] }
@@ -129,7 +127,6 @@ struct SettingsView: View {
                     VStack(spacing: 16) {
                         switch page {
                         case .playback: playbackSection
-                        case .interface: interfaceSection
                         case .storage: storageSection
                         case .about: aboutSection
                         }
@@ -266,13 +263,9 @@ struct SettingsView: View {
                     .labelsHidden()
                     .tint(Palette.accent)
             }
-        }
-    }
 
-    // MARK: - 播放界面
+            divider
 
-    private var interfaceSection: some View {
-        card {
             row {
                 Text("屏幕常亮")
                     .font(.system(size: 14))
@@ -284,20 +277,6 @@ struct SettingsView: View {
             }
 
             divider
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("界面通透度")
-                    .font(.system(size: 14))
-                    .foregroundStyle(Palette.text)
-
-                SettingsSegment(
-                    titles: AppSettings.GlassLevel.allCases.map { $0.title },
-                    selected: AppSettings.GlassLevel.allCases.firstIndex(of: settings.glassLevel) ?? 1
-                ) { index in
-                    settings.glassLevel = AppSettings.GlassLevel.allCases[index]
-                }
-            }
-            .padding(.vertical, 4)
 
             divider
 
@@ -327,6 +306,22 @@ struct SettingsView: View {
                     selected: AppSettings.Orientation.allCases.firstIndex(of: settings.orientationLock) ?? 0
                 ) { index in
                     settings.orientationLock = AppSettings.Orientation.allCases[index]
+                }
+            }
+            .padding(.vertical, 4)
+
+            divider
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("界面通透度")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.text)
+
+                SettingsSegment(
+                    titles: AppSettings.GlassLevel.allCases.map { $0.title },
+                    selected: AppSettings.GlassLevel.allCases.firstIndex(of: settings.glassLevel) ?? 1
+                ) { index in
+                    settings.glassLevel = AppSettings.GlassLevel.allCases[index]
                 }
             }
             .padding(.vertical, 4)

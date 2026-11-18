@@ -86,9 +86,9 @@ open LocalPlayer.xcodeproj
 
 ## 截图
 
-20 个界面，模拟器实拍。点开可看原图。
+界面一览，模拟器实拍。点开可看原图。
 
-<img src="docs/images/screens.png" alt="幕间的 20 个界面">
+<img src="docs/images/screens.png" alt="幕间的界面一览">
 
 ## 项目结构
 

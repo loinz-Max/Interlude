@@ -1070,16 +1070,6 @@ struct LibraryView: View {
                     .multilineTextAlignment(.center)
                     .lineSpacing(3)
                     .foregroundStyle(Palette.tertiaryText)
-            } else {
-                Text("还没有视频")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Palette.text)
-
-                Text("点右上角的导入按钮\n视频只存在本机，不登录、不上传")
-                    .font(.system(size: 12.5))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.tertiaryText)
             }
         }
         // 不套卡片框，也不放任何按钮：空目录只用一句话说清楚
