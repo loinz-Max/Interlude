@@ -8,11 +8,9 @@
 ![platform](https://img.shields.io/badge/iOS-17.0%2B-informational)
 ![license](https://img.shields.io/github/license/loinz-Max/localplayer)
 
-**一个只放本地视频的播放器。**
+**iOS 本地视频播放器。** 离线播放，无账号，不联网。
 
-视频留在设备里，播放不经过网络。没有账号，没有推荐，也没有「猜你喜欢」。
-
-界面只围绕三件事：找到、播放、把画面调好。其余尽量交给系统。
+视频留在设备里。界面只围绕三件事：找到、播放、把画面调好，其余交给系统。
 
 29 个 Swift 文件，不到 7000 行，SwiftUI + AVPlayer，零依赖。
 
