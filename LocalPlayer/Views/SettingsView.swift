@@ -402,6 +402,22 @@ struct SettingsView: View {
 
             divider
 
+            contactRow(
+                title: "GitHub",
+                value: "loinz-Max/Interlude",
+                url: "https://github.com/loinz-Max/Interlude"
+            )
+
+            divider
+
+            contactRow(
+                title: "邮箱",
+                value: "369064497@qq.com",
+                url: "mailto:369064497@qq.com"
+            )
+
+            divider
+
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
                     Text("幕间")
@@ -451,6 +467,26 @@ struct SettingsView: View {
 
     private func rateLabel(_ value: Double) -> String {
         "\(String(format: "%g", value))×"
+    }
+
+    /// 关于页里的一行外链：左侧名称，右侧值 + 外链箭头
+    private func contactRow(title: String, value: String, url: String) -> some View {
+        Link(destination: URL(string: url)!) {
+            row {
+                Text(title)
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.text)
+                Spacer(minLength: 8)
+                Text(value)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.secondaryText)
+                    .lineLimit(1)
+                Image(systemName: "arrow.up.right")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(Palette.tertiaryText)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     /// 只显示版本号，不带括号里的构建号

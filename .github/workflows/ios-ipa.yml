@@ -1,0 +1,228 @@
+name: Build & Screenshot
+
+# 两个产出：
+#   1) shots/*.png —— 在 iOS 模拟器里真实启动 App 后逐屏截图
+#   2) LocalPlayer-unsigned.ipa —— 未签名 ipa，下载后用 Sideloadly 签名装机
+# 日志（build.log）无论成功失败都会上传，编译报错原文在里面。
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  # ─────────────────────────────────────────────
+  # 模拟器真实渲染截图
+  # ─────────────────────────────────────────────
+  simulator:
+    name: 模拟器截图
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 环境信息
+        run: |
+          xcodebuild -version
+          xcrun simctl list runtimes | grep -i ios | tail -3
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 挑一台 iPhone 模拟器
+        id: sim
+        run: |
+          LINE=$(xcrun simctl list devices available | grep -E "iPhone" | head -1)
+          echo "命中：$LINE"
+          UDID=$(echo "$LINE" | grep -oE "[0-9A-Fa-f]{8}(-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}")
+          if [ -z "$UDID" ]; then echo "没有可用模拟器"; exit 1; fi
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: 编译到模拟器
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project LocalPlayer.xcodeproj \
+            -scheme LocalPlayer \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination "id=$UDID" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build 2>&1 | tee build.log
+
+      - name: 提取编译错误
+        if: failure()
+        run: |
+          LOG=build.log
+          [ -f "$LOG" ] || LOG=release.log
+          [ -f "$LOG" ] || exit 0
+          BODY=$(grep -nE "(error|错误): " "$LOG" | head -25)
+          if [ -z "$BODY" ]; then BODY=$(tail -40 "$LOG"); fi
+          MSG=$(printf '%s' "$BODY" | sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-55000)
+          echo "::error title=编译失败::$MSG"
+
+      - name: 启动模拟器并逐屏截图
+        env:
+          UDID: ${{ steps.sim.outputs.udid }}
+          BUNDLE: com.loinzmax.localplayer
+        run: |
+          set -x
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl status_bar "$UDID" override \
+            --time "9:41" --batteryState charged --batteryLevel 100 \
+            --wifiBars 3 --cellularBars 4 || true
+          xcrun simctl install "$UDID" build/Build/Products/Debug-iphonesimulator/LocalPlayer.app
+
+          mkdir -p shots
+          snap () {
+            local name="$1"; local args="$2"; local delay="${3:-4}"
+            xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
+            sleep 1
+            xcrun simctl launch "$UDID" "$BUNDLE" $args || true
+            sleep "$delay"
+            xcrun simctl io "$UDID" screenshot "shots/$name.png"
+          }
+
+          # 空状态：先不塞示例数据
+          snap 01-empty "-screen empty"
+          # 首页：首次启动时生成 4 段示例视频（含缩略图、外挂字幕）
+          snap 02-home "-screen home -seedDemo 1 -seedProgress 1" 9
+          # 进到「示例视频」文件夹，看真实的缩略图网格
+          snap 03-folder "-screen folder"
+
+          # 搜索必须在 12-list 之前拍，否则会继承上一步持久化的列表模式
+          snap 16-search "-screen search -query 示例" 6
+          # 播放页：-keepChrome 把控制栏钉住，否则 4 秒后自动隐藏拍不到
+          snap 04-player "-screen player -keepChrome 1" 3
+          # 横屏播放：这才是实际看片时的形态
+          snap 06-player-landscape "-screen player -keepChrome 1 -landscape 1" 4
+          snap 05-settings "-screen settings"
+          # 设置二级页：长按倍速胶囊 / 播放界面 / 关于的版本号
+          snap 17-settings-playback "-screen settings -settings playback" 4
+          snap 18-settings-interface "-screen settings -settings interface" 4
+          snap 19-settings-about "-screen settings -settings about" 4
+          # 新增界面：文件夹长按菜单、移到文件夹弹窗、倍速面板、播放列表抽屉
+          snap 07-folder-menu "-screen foldermenu -seedDemo 1" 5
+          snap 20-card-menu "-screen cardmenu -seedDemo 1" 5
+          snap 08-move-sheet "-screen move -seedDemo 1" 5
+          snap 09-player-speed "-screen player -panel speed -keepChrome 1" 5
+          snap 10-player-queue "-screen player -panel queue -keepChrome 1" 5
+          snap 11-level "-screen player -panel level -keepChrome 1" 5
+          snap 15-boost "-screen player -panel boost -keepChrome 1" 3
+          snap 12-list "-screen list -seedDemo 1" 5
+          snap 13-select "-screen select -seedDemo 1" 5
+          snap 14-more "-screen more -seedDemo 1" 5
+
+          ls -lh shots
+
+      - name: 上传截图
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-screenshots
+          path: shots/*.png
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: 把截图推到 ci-shots 分支
+        if: always()
+        continue-on-error: true
+        run: |
+          set -e
+          TMP=$(mktemp -d)
+          cd "$TMP"
+          git init -q
+          git config user.name "ci"
+          git config user.email "ci@local"
+          cp -r "$GITHUB_WORKSPACE"/shots/*.png . 2>/dev/null || exit 0
+          printf '# 模拟器截图\n\n每次构建自动覆盖，仅供查看。\n' > README.md
+          git add -A
+          git commit -qm "shots: ${GITHUB_SHA:0:7}"
+          git push -q --force "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:ci-shots
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 上传编译日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: build.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  # ─────────────────────────────────────────────
+  # 未签名 ipa（装机用）
+  # ─────────────────────────────────────────────
+  ipa:
+    name: 打包未签名 ipa
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 XcodeGen
+        run: brew install xcodegen
+
+      - name: 生成 Xcode 工程
+        run: xcodegen generate
+
+      - name: 编译（Release，不签名）
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project LocalPlayer.xcodeproj \
+            -scheme LocalPlayer \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build 2>&1 | tee release.log
+
+      - name: 提取编译错误
+        if: failure()
+        run: |
+          LOG=build.log
+          [ -f "$LOG" ] || LOG=release.log
+          [ -f "$LOG" ] || exit 0
+          BODY=$(grep -nE "(error|错误): " "$LOG" | head -25)
+          if [ -z "$BODY" ]; then BODY=$(tail -40 "$LOG"); fi
+          MSG=$(printf '%s' "$BODY" | sed ':a;N;$!ba;s/\n/%0A/g' | cut -c1-55000)
+          echo "::error title=编译失败::$MSG"
+
+      - name: 打包成 ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/LocalPlayer.app Payload/
+          zip -qr LocalPlayer-unsigned.ipa Payload
+          ls -lh LocalPlayer-unsigned.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalPlayer-unsigned-ipa
+          path: LocalPlayer-unsigned.ipa
+          retention-days: 30
+
+      - name: 上传编译日志
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-log
+          path: release.log
+          if-no-files-found: warn
+          retention-days: 30

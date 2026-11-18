@@ -4,11 +4,13 @@
   <img src="LocalPlayer/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="104" alt="幕间：深色背景上的棱镜">
 </p>
 
-![version](https://img.shields.io/badge/version-0.3.1-blue)
+![version](https://img.shields.io/badge/version-0.3.2-blue)
 ![platform](https://img.shields.io/badge/iOS-17.0%2B-informational)
 ![license](https://img.shields.io/github/license/loinz-Max/Interlude)
 
 **iOS 本地视频播放器。** 离线播放，无账号，不联网。
+
+*A local, offline video player for iOS. No account, no tracking.*
 
 29 个 Swift 文件，不到 7000 行，SwiftUI + AVPlayer，零依赖。
 
@@ -68,7 +70,7 @@
 
 发布的是未签名 ipa，装之前用自己的 Apple ID 签一次名。
 
-**[下载 v0.3.1](https://github.com/loinz-Max/Interlude/releases/latest)**　2.11 MB　需要 iOS 17.0 或更高版本
+**[下载 v0.3.2](https://github.com/loinz-Max/Interlude/releases/latest)**　2.12 MB　需要 iOS 17.0 或更高版本
 
 有 Mac 可以直接编译，需要 Xcode 16 与 XcodeGen：
 
@@ -107,6 +109,6 @@ docs/images/      README 里的截图
 
 [@loinz-Max](https://github.com/loinz-Max) 维护。
 
-遇到崩溃、手势不对、某个文件播不了，开个 [Issue](https://github.com/loinz-Max/Interlude/issues)，写清机型与 iOS 版本即可。想改代码，先开 Issue 说方向——这个 App 的取舍比较个人化，先说清楚能省双方时间。
+遇到崩溃、手势不对、某个文件播不了，开个 [Issue](https://github.com/loinz-Max/Interlude/issues)，写清机型与 iOS 版本即可；也可以写信到 [369064497@qq.com](mailto:369064497@qq.com)。想改代码，先开 Issue 说方向——这个 App 的取舍比较个人化，先说清楚能省双方时间。
 
 图标来自 [SF Symbols](https://developer.apple.com/sf-symbols/)。代码以 [MIT](LICENSE) 许可发布，© 2026 loinz-Max。
