@@ -1059,22 +1059,9 @@ struct LibraryView: View {
     // MARK: - 空状态
 
     private var emptyState: some View {
-        VStack(spacing: 10) {
-            if library.currentFolder != nil {
-                Text("这个文件夹里还没有视频")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundStyle(Palette.text)
-
-                Text("点右上角的导入按钮\n导入的视频会放进这个文件夹")
-                    .font(.system(size: 12.5))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(3)
-                    .foregroundStyle(Palette.tertiaryText)
-            }
-        }
-        // 不套卡片框，也不放任何按钮：空目录只用一句话说清楚
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 40)
+        // 空目录不放任何提示：留白就是提示
+        Color.clear
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     // MARK: - 背景
