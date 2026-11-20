@@ -211,10 +211,9 @@ struct LibraryView: View {
         .onOpenURL { url in
             OpenInbox.shared.receive(url)
         }
-        .onReceive(OpenInbox.shared.$pending) { urls in
-            guard !urls.isEmpty else { return }
-            // 取走（会改 @Published）和导入都推到下一拍，
-            // 否则就是在视图更新过程中改状态
+        .onReceive(OpenInbox.shared.objectWillChange) { _ in
+            // 取走（会改状态）和导入都推到下一拍：
+            // 这里还在视图更新过程中，直接改状态会触发紫色告警
             DispatchQueue.main.async { drainOpenInbox() }
         }
         // 设置里点了「清理缩略图缓存」：重建列表，让每张卡重新生成缩略图。

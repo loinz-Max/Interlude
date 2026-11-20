@@ -129,6 +129,8 @@ enum ImportService {
 
         // 落地了才算成功：协调失败时访问块可能压根没执行，不能只看错误变量
         if fm.fileExists(atPath: destination.path) { return }
-        throw copyError ?? coordinationError ?? CocoaError(.fileReadUnknown)
+        if let copyError { throw copyError }
+        if let coordinationError { throw coordinationError }
+        throw CocoaError(.fileReadUnknown)
     }
 }
