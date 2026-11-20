@@ -70,7 +70,7 @@
 
 发布的是未签名 ipa，装之前用自己的 Apple ID 签一次名。
 
-**[下载 v0.3.3](https://github.com/loinz-Max/Interlude/releases/latest)**　2.11 MB　需要 iOS 17.0 或更高版本
+**[下载 v0.3.3](https://github.com/loinz-Max/Interlude/releases/latest)**　2.08 MB　需要 iOS 17.0 或更高版本
 
 有 Mac 可以直接编译，需要 Xcode 16 与 XcodeGen：
 
