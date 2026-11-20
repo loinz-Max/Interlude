@@ -33,29 +33,6 @@ private struct FolderFrameKey: PreferenceKey {
     }
 }
 
-/// 「从文件导入」的选择器宿主。
-///
-/// 一个视图只该挂一个 presentation。`LibraryView` 身上已经有三个 `.sheet`
-/// 加一串 `.alert`，再把 `.fileImporter` 也挂上去，等于四个呈现挤同一处——
-/// SwiftUI 对这种写法没有定义，症状就是「点了不弹」或「选完回调不来」。
-/// 这里把 importer 单独挂到一个看不见的子视图上，各走各的上下文。
-private struct FileImportPresenter: View {
-    @Binding var isPresented: Bool
-    var onResult: (Result<[URL], Error>) -> Void
-
-    var body: some View {
-        Color.clear
-            .frame(width: 1, height: 1)
-            .allowsHitTesting(false)
-            .fileImporter(
-                isPresented: $isPresented,
-                allowedContentTypes: [.movie, .video, .item],
-                allowsMultipleSelection: true,
-                onCompletion: onResult
-            )
-    }
-}
-
 // MARK: - 资料库
 
 struct LibraryView: View {
@@ -72,7 +49,6 @@ struct LibraryView: View {
     @State private var selection: Set<String> = []
     @State private var confirmBatchDelete = false
     @State private var batchMoving = false
-    @State private var showFileImporter = false
     @State private var showPhotoPicker = false
     @State private var showSettings = false
     @State private var showNewFolder = false
@@ -144,7 +120,7 @@ struct LibraryView: View {
                     case .importing:
                         ImportMenu(
                             onPhoto: { popup = nil; showPhotoPicker = true },
-                            onFile: { popup = nil; showFileImporter = true }
+                            onFile: { popup = nil; presentFilePicker() }
                         )
                         .padding(.top, 60)
                         .frame(maxWidth: .infinity, alignment: .trailing)
@@ -958,11 +934,6 @@ struct LibraryView: View {
                 )
             }
             .ignoresSafeArea()
-            // 文件选择器挂在这一层：body 那条修饰符链已经长到让类型检查器吃紧，
-            // 再加一个 .background 就编不过了（error: unable to type-check in reasonable time）
-            .background {
-                FileImportPresenter(isPresented: $showFileImporter, onResult: handleFileImport)
-            }
     }
 
     // MARK: - 浮层
@@ -1054,16 +1025,21 @@ struct LibraryView: View {
         toast("已移到「\(name)」")
     }
 
-    private func handleFileImport(_ result: Result<[URL], Error>) {
-        switch result {
-        case .success(let urls):
+    /// 弹出「文件」选择器。走 FilePicker 而不是 `.fileImporter`：
+    /// 后者的回调会随着视图重建一起丢失，选完点「打开」就是没反应。
+    private func presentFilePicker() {
+        FilePicker.shared.present { urls in
             guard !urls.isEmpty else { return }
-            Task {
-                let outcome = await library.importItems(urls.map { ImportItem(url: $0) })
-                toast(outcome.summary)
-            }
-        case .failure:
-            toast("导入失败")
+            importFiles(urls)
+        }
+    }
+
+    private func importFiles(_ urls: [URL]) {
+        // 导入要读写文件、还要改好几处界面状态，统一放在主 actor 上收口：
+        // 以前这里是不带 actor 的 Task，落回主线程的时机不确定，提示有时根本不出现。
+        Task { @MainActor in
+            let outcome = await library.importItems(urls.map { ImportItem(url: $0) })
+            toast(outcome.summary)
         }
     }
 
@@ -1071,7 +1047,7 @@ struct LibraryView: View {
     private func drainOpenInbox() {
         let urls = OpenInbox.shared.take()
         guard !urls.isEmpty else { return }
-        Task {
+        Task { @MainActor in
             let outcome = await library.importItems(urls.map { ImportItem(url: $0) })
             toast(outcome.summary)
 
@@ -1089,7 +1065,7 @@ struct LibraryView: View {
 
     private func importMovies(_ movies: [PickedMovie], failed: Int = 0) {
         guard !movies.isEmpty else { return }
-        Task {
+        Task { @MainActor in
             let outcome = await library.importItems(
                 movies.map { ImportItem(url: $0.url, preferredName: $0.name, moving: true) }
             )

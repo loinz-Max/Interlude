@@ -183,7 +183,9 @@ final class LibraryStore: ObservableObject {
             // 把幕间自己的文件再导入一次。以前这种情况会生成「名字 (2)」，
             // 用户的感受就是「导入进来两份」。
             if let relative = VideoItem.relativePath(of: item.url, in: documents), !relative.isEmpty {
-                result.copied += 1
+                // 已经在资料库里：不拷第二份，但也不能算成「导入成功」——
+                // 界面上不会多出任何东西，说「导入 1 个」等于骗人。
+                result.existing += 1
                 result.saved.append(item.url)
             } else {
                 let one = await ImportService.bring(item, into: target)

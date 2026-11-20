@@ -17,6 +17,10 @@ struct ImportResult: Equatable, Sendable {
     var copied = 0
     var renamed = 0
     var failed = 0
+    /// 已经在「幕间」文件夹里、这次没有再拷一份的个数。
+    /// 以前这类也记进 copied，提示说「导入 1 个」，可界面上什么都没变——
+    /// 用户唯一能得到的结论就是「点了没反应」。
+    var existing = 0
     /// 真正落地的文件。调用方靠它判断「刚打开的那个文件要不要直接播」
     var saved: [URL] = []
     /// 失败原因，只留第一条。以前失败只报「1 个失败」，用户和维护者都不知道
@@ -24,12 +28,17 @@ struct ImportResult: Equatable, Sendable {
     var reason: String?
 
     var summary: String {
-        guard copied > 0 || failed > 0 else { return "没有导入成功" }
         var parts: [String] = []
         if copied > 0 { parts.append("导入 \(copied) 个") }
+        if existing > 0 {
+            parts.append(existing == 1
+                ? "文件已经在「幕间」文件夹里"
+                : "\(existing) 个文件已经在「幕间」文件夹里")
+        }
         if renamed > 0 { parts.append("\(renamed) 个同名已改名") }
         if failed > 0 { parts.append("\(failed) 个失败") }
         if failed > 0, let reason, !reason.isEmpty { parts.append(reason) }
+        guard !parts.isEmpty else { return "没有导入成功" }
         return parts.joined(separator: "，")
     }
 }
