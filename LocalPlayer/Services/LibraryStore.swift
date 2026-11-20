@@ -167,11 +167,6 @@ final class LibraryStore: ObservableObject {
     /// 收结果、推进度（`@Published` 必须回到主 actor 才能改）。
     /// 之前 `copyItem` 是同步执行的，大文件会冻界面。
     @MainActor
-    /// 整个方法挂在主 actor 上：里面要改 `importProgress` 等 @Published 状态，
-    /// 而它以前是从一个没有 actor 的 Task 里调用的，发布通知发在后台线程上，
-    /// 导入进度条和结束提示都可能不出现。真正的耗时操作（拷贝、扫描）仍是
-    /// 各走各的后台，主线程只负责写状态。
-    @MainActor
     func importItems(_ items: [ImportItem]) async -> ImportResult {
         guard !items.isEmpty else { return ImportResult() }
 
