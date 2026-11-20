@@ -278,8 +278,6 @@ struct SettingsView: View {
 
             divider
 
-            divider
-
             VStack(alignment: .leading, spacing: 8) {
                 Text("控件自动隐藏")
                     .font(.system(size: 14))

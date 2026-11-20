@@ -2,19 +2,15 @@ import SwiftUI
 
 // MARK: - 元信息行
 
-/// 网格卡与列表行共用的第二行：文件夹 · 时长 · 体积。
+/// 网格卡与列表行共用的第二行：时长 · 体积。
 /// 列表行多一段「已看 %」，靠传 `fraction` / `watched` 开启，网格卡不传就保持原样。
 private func mediaMeta(
     for item: VideoItem,
-    folderName: String?,
     duration: Double?,
     fraction: Double = 0,
     watched: Bool = false
 ) -> String {
     var parts: [String] = []
-    if let folderName, !folderName.isEmpty {
-        parts.append(folderName)
-    }
     if let duration, duration > 0 {
         parts.append(Fmt.time(duration))
     }
@@ -157,8 +153,6 @@ struct VideoCard: View {
     var active: Bool = false
     /// 多选模式下被选中
     var selected: Bool = false
-    /// 搜索结果里显示所在文件夹（平时为 nil）
-    var folderName: String? = nil
     /// 长按浮起的那一份：加一层投影，做出「离开网格」的层次
     var lifted: Bool = false
 
@@ -230,7 +224,7 @@ struct VideoCard: View {
     }
 
     private var metaText: String {
-        mediaMeta(for: item, folderName: folderName, duration: duration)
+        mediaMeta(for: item, duration: duration)
     }
 }
 
@@ -284,8 +278,6 @@ struct VideoRow: View {
     let fraction: Double
     var watched: Bool = false
     var selected: Bool = false
-    /// 搜索结果里显示所在文件夹（平时为 nil）
-    var folderName: String? = nil
 
     @State private var duration: Double?
 
@@ -338,6 +330,6 @@ struct VideoRow: View {
     }
 
     private var metaText: String {
-        mediaMeta(for: item, folderName: folderName, duration: duration, fraction: fraction, watched: watched)
+        mediaMeta(for: item, duration: duration, fraction: fraction, watched: watched)
     }
 }

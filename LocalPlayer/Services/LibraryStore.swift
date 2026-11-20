@@ -139,10 +139,21 @@ final class LibraryStore: ObservableObject {
         importProgress = ImportProgress(done: 0, total: items.count)
 
         for (index, item) in items.enumerated() {
-            let one = await ImportService.bring(item, into: target)
-            result.copied += one.copied
-            result.renamed += one.renamed
-            result.failed += one.failed
+            // 已经在资料库里的文件不再拷一份。两种场景都会撞上：
+            // 「用幕间打开」的正是「幕间」目录里已有的视频；从「文件」App 里
+            // 把幕间自己的文件再导入一次。以前这种情况会生成「名字 (2)」，
+            // 用户的感受就是「导入进来两份」。
+            if let relative = VideoItem.relativePath(of: item.url, in: documents), !relative.isEmpty {
+                result.copied += 1
+                result.saved.append(item.url)
+            } else {
+                let one = await ImportService.bring(item, into: target)
+                result.copied += one.copied
+                result.renamed += one.renamed
+                result.failed += one.failed
+                result.saved += one.saved
+                if result.reason == nil { result.reason = one.reason }
+            }
             importProgress = ImportProgress(done: index + 1, total: items.count)
         }
 

@@ -6,6 +6,23 @@
 	<string>zh_CN</string>
 	<key>CFBundleDisplayName</key>
 	<string>幕间</string>
+	<!-- 声明成视频的查看器，系统才会把幕间列进「文件」App 的「用其他应用打开」。
+	     Alternate：默认播放器仍是系统「视频」，不抢用户的默认设置。 -->
+	<key>CFBundleDocumentTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>视频</string>
+			<key>CFBundleTypeRole</key>
+			<string>Viewer</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.movie</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
