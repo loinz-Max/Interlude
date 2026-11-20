@@ -1028,7 +1028,9 @@ struct LibraryView: View {
     /// 弹出「文件」选择器。走 FilePicker 而不是 `.fileImporter`：
     /// 后者的回调会随着视图重建一起丢失，选完点「打开」就是没反应。
     private func presentFilePicker() {
+        ImportLog.write("A0 点「从文件导入」")
         FilePicker.shared.present { urls in
+            ImportLog.write("B3 回到视图层：收到 \(urls.count) 个 URL")
             guard !urls.isEmpty else { return }
             importFiles(urls)
         }
@@ -1038,7 +1040,11 @@ struct LibraryView: View {
         // 导入要读写文件、还要改好几处界面状态，统一放在主 actor 上收口：
         // 以前这里是不带 actor 的 Task，落回主线程的时机不确定，提示有时根本不出现。
         Task { @MainActor in
-            let outcome = await library.importItems(urls.map { ImportItem(url: $0) })
+            ImportLog.write("C1 开始导入 \(urls.count) 个")
+            // asCopy: true 给的是系统复制到 tmp 的副本：直接搬进资料库，
+            // 不必再拷一遍（大文件能省一次完整拷贝）
+            let outcome = await library.importItems(urls.map { ImportItem(url: $0, moving: true) })
+            ImportLog.write("C3 导入结束：拷贝 \(outcome.copied)，已在库 \(outcome.existing)，失败 \(outcome.failed)")
             toast(outcome.summary)
         }
     }

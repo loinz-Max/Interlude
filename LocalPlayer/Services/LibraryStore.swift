@@ -172,6 +172,7 @@ final class LibraryStore: ObservableObject {
 
         let target = currentFolder.map { documents.appendingPathComponent($0, isDirectory: true) } ?? documents
         try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        ImportLog.write("C2 目标目录 = \(target.lastPathComponent)")
 
         var result = ImportResult()
         result.total = items.count
@@ -187,6 +188,13 @@ final class LibraryStore: ObservableObject {
                 // 界面上不会多出任何东西，说「导入 1 个」等于骗人。
                 result.existing += 1
                 result.saved.append(item.url)
+                ImportLog.write("     · \(item.url.lastPathComponent)：已在资料库")
+            } else if let duplicate = existingDuplicate(of: item) {
+                // 选择器给的是 tmp 副本，路径已经不在资料库里了；靠同名 + 同大小
+                // 认出「就是库里那一部」，避免又拷一份进去变成「名字 (2)」。
+                result.existing += 1
+                result.saved.append(duplicate.url)
+                ImportLog.write("     · \(item.url.lastPathComponent)：库里已有同名同大小，跳过")
             } else {
                 let one = await ImportService.bring(item, into: target)
                 result.copied += one.copied
@@ -194,6 +202,7 @@ final class LibraryStore: ObservableObject {
                 result.failed += one.failed
                 result.saved += one.saved
                 if result.reason == nil { result.reason = one.reason }
+                ImportLog.write("     · \(item.url.lastPathComponent)：拷贝 \(one.copied) 失败 \(one.failed)\(one.reason.map { "（\($0)）" } ?? "")")
             }
             importProgress = ImportProgress(done: index + 1, total: items.count)
         }
@@ -202,6 +211,16 @@ final class LibraryStore: ObservableObject {
         // 等这一趟扫完再返回：调用方紧接着就要用 allItems 拼播放队列
         if result.copied > 0 { await reload().value }
         return result
+    }
+
+    /// 判断一个待导入项是不是库里已有的同一部片。
+    /// 只对「搬临时副本」这条路径有意义——那种 URL 的原路径已经拿不到了。
+    private func existingDuplicate(of item: ImportItem) -> VideoItem? {
+        guard item.moving else { return nil }
+        let name = item.preferredName ?? item.url.lastPathComponent
+        let attrs = try? FileManager.default.attributesOfItem(atPath: item.url.path)
+        let size = (attrs?[.size] as? NSNumber)?.int64Value
+        return allItems.first { $0.name == name && (size == nil || $0.fileSize == size) }
     }
 
     func delete(_ item: VideoItem) {
