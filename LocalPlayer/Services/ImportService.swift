@@ -1,19 +1,7 @@
 import Foundation
 
-/// 一次导入的进度：总共几个、搬完几个
-struct ImportProgress: Equatable, Sendable {
-    var done: Int
-    var total: Int
-
-    var fraction: Double {
-        guard total > 0 else { return 0 }
-        return min(1, max(0, Double(done) / Double(total)))
-    }
-}
-
 /// 导入结果。同名文件会被自动改成「名字 2」，单独计数，好在提示里说清楚。
 struct ImportResult: Equatable, Sendable {
-    var total = 0
     var copied = 0
     var renamed = 0
     var failed = 0
@@ -40,6 +28,16 @@ struct ImportResult: Equatable, Sendable {
         if failed > 0, let reason, !reason.isEmpty { parts.append(reason) }
         guard !parts.isEmpty else { return "没有导入成功" }
         return parts.joined(separator: "，")
+    }
+
+    /// 需要解释一句时才返回文案；全部导入成功返回 nil。
+    ///
+    /// 成功的反馈是「列表里多出卡片」，再在底部说一句「导入 1 个」是重复的。
+    /// 真正要说的是三种情况：有失败、有文件本来就在库里（所以画面没变化）、
+    /// 或者一个都没进来。
+    var notice: String? {
+        if failed > 0 || existing > 0 || copied == 0 { return summary }
+        return nil
     }
 }
 
@@ -85,7 +83,7 @@ enum ImportService {
         // 用户只看到「没有导入成功」，不知道该改什么。这里直接说清楚。
         guard !ext.isEmpty, VideoItem.videoExtensions.contains(ext) else {
             return ImportResult(
-                total: 1, copied: 0, renamed: 0, failed: 1,
+                copied: 0, renamed: 0, failed: 1,
                 reason: "「\(preferred)」不是支持的视频格式"
             )
         }
@@ -100,14 +98,14 @@ enum ImportService {
             }
         } catch {
             return ImportResult(
-                total: 1, copied: 0, renamed: 0, failed: 1,
+                copied: 0, renamed: 0, failed: 1,
                 reason: error.localizedDescription
             )
         }
 
         let renamed = destination.lastPathComponent != preferred
         return ImportResult(
-            total: 1, copied: 1, renamed: renamed ? 1 : 0, failed: 0,
+            copied: 1, renamed: renamed ? 1 : 0, failed: 0,
             saved: [destination]
         )
     }

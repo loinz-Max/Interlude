@@ -4,7 +4,7 @@
   <img src="LocalPlayer/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="104" alt="幕间：深色背景上的棱镜">
 </p>
 
-![version](https://img.shields.io/badge/version-0.3.3-blue)
+![version](https://img.shields.io/badge/version-0.3.4-blue)
 ![platform](https://img.shields.io/badge/iOS-17.0%2B-informational)
 ![license](https://img.shields.io/github/license/loinz-Max/Interlude)
 
@@ -24,7 +24,7 @@
 
 ## 使用
 
-**导入**　四条路：在「文件」App 里拷进「幕间」、从导入菜单选相册、连数据线在访达里拖进文件区、在「文件」App 里长按视频选「用幕间打开」。最后一条会导入到当前目录，单个文件且系统能直接播时随即开始播放。批量导入有进度，结束时报成功与重名的数量。
+**导入**　四条路：在「文件」App 里拷进「幕间」、从导入菜单选相册、连数据线在访达里拖进文件区、在「文件」App 里长按视频选「用幕间打开」。最后一条会导入到当前目录，单个文件且系统能直接播时随即开始播放。批量导入不显示进度条（多数就是同盘移动，一闪而过反而打断），只有失败、或文件本来就在资料库里时才会另说一句——成功的反馈就是列表里多出那张卡片。
 
 **播放**　点卡片即播，从上次离开的位置继续。控件静止片刻自动隐去，轻点屏幕唤回。
 

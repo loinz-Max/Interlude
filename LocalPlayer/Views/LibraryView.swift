@@ -220,17 +220,8 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: ThumbnailLoader.clearedNotification)) { _ in
             refreshToken += 1
         }
-        // 导入进度贴在底部，不铺遮罩：导入期间照样能滑、能点开视频。
-        // 位置和 toast 一致，导入结束的汇总提示正好接在同一处。
-        .overlay(alignment: .bottom) {
-            if let importProgress = library.importProgress {
-                ImportProgressHUD(progress: importProgress)
-                    .padding(.bottom, 28)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(20)
-            }
-        }
-        .animation(.easeOut(duration: 0.22), value: library.importProgress == nil)
+        // 导入不挂进度浮层：同盘 move 几十毫秒就完，弹一下又收掉只是打断。
+        // 结果的反馈是列表里多出那张卡片；出错会有提示说明原因。
         .overlay(alignment: .bottom) {
             if selecting {
                 selectionBar
@@ -269,7 +260,6 @@ struct LibraryView: View {
             Button("创建") {
                 library.createFolder(newFolderName)
                 newFolderName = ""
-                toast("已创建文件夹")
             }
         }
         .alert("重命名", isPresented: renameBinding) {
@@ -289,7 +279,6 @@ struct LibraryView: View {
                 progress.forget(id: item.id)
                 library.delete(item)
                 deleting = nil
-                toast("已删除")
             }
         } message: { _ in
             Text("文件会从本机移除，这个操作不能撤销。")
@@ -713,7 +702,7 @@ struct LibraryView: View {
         for id in victims { progress.forget(id: id) }
         let removed = library.deleteMany(ids: victims)
         exitSelection()
-        toast(removed > 0 ? "已删除 \(removed) 个视频" : "删除失败")
+        if removed == 0 { toast("删除失败") }
     }
 
     private func batchMove(to path: String) {
@@ -727,8 +716,7 @@ struct LibraryView: View {
             }
         }
         exitSelection()
-        let name = path.isEmpty ? "资料库" : library.displayName(forFolder: path)
-        toast(moved > 0 ? "已移动 \(moved) 个视频到「\(name)」" : "没有移动任何文件")
+        if moved == 0 { toast("没有移动任何文件") }
     }
 
     private func count(in folder: String) -> Int {
@@ -942,7 +930,8 @@ struct LibraryView: View {
     private var toastView: some View {
         if let toastText {
             HUDLabel(text: toastText)
-                .padding(.bottom, 28)
+                // 多选栏占了底部 24 + 44，提示要抬到它上面，否则两截字会叠在一起
+                .padding(.bottom, selecting ? 92 : 28)
                 .transition(.opacity)
                 .allowsHitTesting(false)
         }
@@ -994,23 +983,20 @@ struct LibraryView: View {
             return
         }
         progress.renamePath(from: oldID, to: renamed.id)
-        toast("已重命名")
     }
 
     private func commitFolderRename() {
         guard let path = renamingFolder else { return }
         renamingFolder = nil
         library.renameFolder(path, to: folderRenameText)
-        toast("已重命名")
     }
 
     private func deleteSelectedFolder(_ path: String) {
         let victims = library.itemsInside(path)
         for item in victims { progress.forget(id: item.id) }
-        let removed = library.deleteFolder(path)
+        _ = library.deleteFolder(path)
         if library.currentFolder == path { library.currentFolder = nil }
         deletingFolder = nil
-        toast(removed > 0 ? "已删除文件夹（含 \(removed) 个视频）" : "已删除空文件夹")
     }
 
     private func moveItem(_ item: VideoItem, to path: String) {
@@ -1021,16 +1007,12 @@ struct LibraryView: View {
             return
         }
         progress.renamePath(from: oldID, to: moved.id)
-        let name = path.isEmpty ? "资料库" : library.displayName(forFolder: path)
-        toast("已移到「\(name)」")
     }
 
     /// 弹出「文件」选择器。走 FilePicker 而不是 `.fileImporter`：
     /// 后者的回调会随着视图重建一起丢失，选完点「打开」就是没反应。
     private func presentFilePicker() {
-        ImportLog.write("A0 点「从文件导入」")
         FilePicker.shared.present { urls in
-            ImportLog.write("B3 回到视图层：收到 \(urls.count) 个 URL")
             guard !urls.isEmpty else { return }
             importFiles(urls)
         }
@@ -1040,12 +1022,10 @@ struct LibraryView: View {
         // 导入要读写文件、还要改好几处界面状态，统一放在主 actor 上收口：
         // 以前这里是不带 actor 的 Task，落回主线程的时机不确定，提示有时根本不出现。
         Task { @MainActor in
-            ImportLog.write("C1 开始导入 \(urls.count) 个")
             // asCopy: true 给的是系统复制到 tmp 的副本：直接搬进资料库，
             // 不必再拷一遍（大文件能省一次完整拷贝）
             let outcome = await library.importItems(urls.map { ImportItem(url: $0, moving: true) })
-            ImportLog.write("C3 导入结束：拷贝 \(outcome.copied)，已在库 \(outcome.existing)，失败 \(outcome.failed)")
-            toast(outcome.summary)
+            showNotice(outcome.notice)
         }
     }
 
@@ -1055,7 +1035,7 @@ struct LibraryView: View {
         guard !urls.isEmpty else { return }
         Task { @MainActor in
             let outcome = await library.importItems(urls.map { ImportItem(url: $0) })
-            toast(outcome.summary)
+            showNotice(outcome.notice)
 
             // 用户点「用幕间打开」就是为了看这个文件，导入完直接进播放页。
             // 多选、格式不支持（mkv 之类）、或当前已经在看别的片，都不打断。
@@ -1076,8 +1056,18 @@ struct LibraryView: View {
                 movies.map { ImportItem(url: $0.url, preferredName: $0.name, moving: true) }
             )
             // 读取阶段就失败的那几个也要说出来，否则「选了 5 个只进来 3 个」没法解释
-            toast(failed > 0 ? "\(outcome.summary)，\(failed) 个没能读取" : outcome.summary)
+            let parts = [outcome.notice, failed > 0 ? "\(failed) 个没能读取" : nil]
+                .compactMap { $0 }
+            showNotice(parts.isEmpty ? nil : parts.joined(separator: "，"))
         }
+    }
+
+    /// 只在「需要解释一句」时才提示；nil 表示这次什么都不用说。
+    ///
+    /// 界面本身就是反馈：删除、移动、重命名之后画面已经变了，成功再弹一行字是多余的。
+    private func showNotice(_ text: String?) {
+        guard let text, !text.isEmpty else { return }
+        toast(text)
     }
 
     private func toast(_ text: String) {

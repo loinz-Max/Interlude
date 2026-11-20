@@ -16,9 +16,6 @@ final class LibraryStore: ObservableObject {
     /// nil 表示根目录
     @Published var currentFolder: String?
     @Published private(set) var totalSize: Int64 = 0
-    /// 正在导入的进度；nil 表示没有在导入
-    @Published private(set) var importProgress: ImportProgress?
-
     let documents: URL
 
     /// 监听 Documents 目录本身的变化：爱思助手、文件 App、iCloud 从外部写进来的文件
@@ -28,6 +25,7 @@ final class LibraryStore: ObservableObject {
 
     init() {
         documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        removeLegacyDiagnostics()
         loadFolderNames()
         reload()
         startWatching()
@@ -36,6 +34,14 @@ final class LibraryStore: ObservableObject {
     deinit {
         watcher?.cancel()
         reloadWorkItem?.cancel()
+    }
+
+    /// 早期版本在资料库里写过「导入诊断.txt」用于排障。诊断已经去掉，
+    /// 这里把老版本留下的那一个文件清掉——只认这一个固定文件名，不碰别的。
+    private func removeLegacyDiagnostics() {
+        let url = documents.appendingPathComponent("导入诊断.txt")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     // MARK: - 目录监听
@@ -161,10 +167,12 @@ final class LibraryStore: ObservableObject {
 
     // MARK: - 导入 / 删除
 
-    /// 逐个搬进当前目录，每搬完一个更新一次进度。
+    /// 逐个搬进当前目录。
     ///
-    /// 真正的文件 I/O 在 `ImportService` 的 detached task 里跑，这里只在主线程
-    /// 收结果、推进度（`@Published` 必须回到主 actor 才能改）。
+    /// 不显示进度：导入多数就是同一块盘上的 move，几十毫秒结束，弹个胶囊再收掉
+    /// 只是打断人。真正的反馈是列表里多出那张卡片；出问题会有提示说明原因。
+    ///
+    /// 真正的文件 I/O 在 `ImportService` 的 detached task 里跑，这里只收结果。
     /// 之前 `copyItem` 是同步执行的，大文件会冻界面。
     @MainActor
     func importItems(_ items: [ImportItem]) async -> ImportResult {
@@ -172,13 +180,10 @@ final class LibraryStore: ObservableObject {
 
         let target = currentFolder.map { documents.appendingPathComponent($0, isDirectory: true) } ?? documents
         try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-        ImportLog.write("C2 目标目录 = \(target.lastPathComponent)")
 
         var result = ImportResult()
-        result.total = items.count
-        importProgress = ImportProgress(done: 0, total: items.count)
 
-        for (index, item) in items.enumerated() {
+        for item in items {
             // 已经在资料库里的文件不再拷一份。两种场景都会撞上：
             // 「用幕间打开」的正是「幕间」目录里已有的视频；从「文件」App 里
             // 把幕间自己的文件再导入一次。以前这种情况会生成「名字 (2)」，
@@ -188,13 +193,11 @@ final class LibraryStore: ObservableObject {
                 // 界面上不会多出任何东西，说「导入 1 个」等于骗人。
                 result.existing += 1
                 result.saved.append(item.url)
-                ImportLog.write("     · \(item.url.lastPathComponent)：已在资料库")
             } else if let duplicate = existingDuplicate(of: item) {
                 // 选择器给的是 tmp 副本，路径已经不在资料库里了；靠同名 + 同大小
                 // 认出「就是库里那一部」，避免又拷一份进去变成「名字 (2)」。
                 result.existing += 1
                 result.saved.append(duplicate.url)
-                ImportLog.write("     · \(item.url.lastPathComponent)：库里已有同名同大小，跳过")
             } else {
                 let one = await ImportService.bring(item, into: target)
                 result.copied += one.copied
@@ -202,12 +205,8 @@ final class LibraryStore: ObservableObject {
                 result.failed += one.failed
                 result.saved += one.saved
                 if result.reason == nil { result.reason = one.reason }
-                ImportLog.write("     · \(item.url.lastPathComponent)：拷贝 \(one.copied) 失败 \(one.failed)\(one.reason.map { "（\($0)）" } ?? "")")
             }
-            importProgress = ImportProgress(done: index + 1, total: items.count)
         }
-
-        importProgress = nil
         // 等这一趟扫完再返回：调用方紧接着就要用 allItems 拼播放队列
         if result.copied > 0 { await reload().value }
         return result
