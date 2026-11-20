@@ -22,20 +22,35 @@ struct PlayerScreen: View {
     @State private var brightnessBefore: CGFloat?
 
     @Environment(\.dismiss) private var dismiss
+    /// 续播位置要在建 `PlayerCore` 之前算好，所以这两层要提到这里
+    @EnvironmentObject private var progress: ProgressStore
+    @EnvironmentObject private var settings: AppSettings
 
     init(item: VideoItem, queue: [VideoItem], onDismiss: (() -> Void)? = nil) {
         self.queue = queue
         self.onDismiss = onDismiss
         _current = State(initialValue: item)
-        // 起始倍速/模式从设置里取；键名与读写都收在 AppSettings 里
+        // 倍速每次进播放页都从 1× 起：设置里只存长按倍速与默认播放模式，
+        // 键名与读写都收在 AppSettings 里
         _rate = State(initialValue: 1.0)
         _mode = State(initialValue: AppSettings.storedPlayMode())
+    }
+
+    /// 进播放页时的续播位置。
+    ///
+    /// 交给 `PlayerModel` 在建播放器时落位，而不是等视图出来、时长读到之后再 seek：
+    /// 后者会先播零点几秒再「啪」地跳一下；更糟的是时长若在观察装好之前就已就绪，
+    /// 那次跳转根本不会发生，续播静默失效。
+    private func resumeTime(for item: VideoItem) -> Double {
+        guard settings.resumePlayback else { return 0 }
+        return progress.position(for: item.id)
     }
 
     var body: some View {
         PlayerCore(
             item: current,
             queue: queue,
+            resumeTime: resumeTime(for: current),
             rate: $rate,
             mode: $mode,
             queueOpen: $queueOpen,
@@ -97,6 +112,8 @@ private struct LevelHUD: Equatable {
 private struct PlayerCore: View {
     let item: VideoItem
     let queue: [VideoItem]
+    /// 这一集要跳到哪儿开始播。由 `PlayerScreen` 在视图层算好传进来
+    let resumeTime: Double
     @Binding var rate: Double
     @Binding var mode: PlayMode
     @Binding var queueOpen: Bool
@@ -157,13 +174,12 @@ private struct PlayerCore: View {
     @State private var previewFrame: UIImage?
     @State private var previewToken = 0
 
-    @State private var pendingResume: Double = 0
-    @State private var didRestore = false
     @State private var lastSavedAt: Double = 0
 
     init(
         item: VideoItem,
         queue: [VideoItem],
+        resumeTime: Double,
         rate: Binding<Double>,
         mode: Binding<PlayMode>,
         queueOpen: Binding<Bool>,
@@ -172,12 +188,17 @@ private struct PlayerCore: View {
     ) {
         self.item = item
         self.queue = queue
+        self.resumeTime = resumeTime
         _rate = rate
         _mode = mode
         _queueOpen = queueOpen
         self.onClose = onClose
         self.onAdvance = onAdvance
-        _model = StateObject(wrappedValue: PlayerModel(item: item, resumeTime: 0, rate: 1))
+        // 续播位置直接交给 PlayerModel：它在建 AVPlayer 的同时就 seek，
+        // 不会出现「先播一秒再跳」的抖动
+        _model = StateObject(
+            wrappedValue: PlayerModel(item: item, resumeTime: resumeTime, rate: 1)
+        )
         // 画面比例按设置里的默认值起步，本次改不回写设置（保持「本次有效」的约定）
         _gravityIndex = State(initialValue: AppSettings.storedGravity())
     }
@@ -293,7 +314,9 @@ private struct PlayerCore: View {
             }
         }
         .onChange(of: model.duration) { _, value in
-            if !didRestore, value > 0 { restorePosition() }
+            // 记录里的位置比片子还长（换过文件、时长变了）：回到开头。
+            // 否则一进来就停在最后一帧，播完直接跳到下一集。
+            if resumeTime > 5, value > 1, resumeTime >= value - 1 { model.seek(to: 0) }
             pushNowPlaying(force: true)
         }
         .onChange(of: model.isPlaying) { _, playing in
@@ -1090,7 +1113,6 @@ private struct PlayerCore: View {
         previewFrame = nil
         model.onEnded = { handleEnded() }
         model.setRate(Float(rate))
-        pendingResume = settings.resumePlayback ? progress.position(for: item.id) : 0
 
         model.play()
         UIApplication.shared.isIdleTimerDisabled = settings.keepAwake
@@ -1125,12 +1147,6 @@ private struct PlayerCore: View {
             }
         }
         #endif
-    }
-
-    private func restorePosition() {
-        didRestore = true
-        guard pendingResume > 5 else { return }
-        model.seek(to: pendingResume)
     }
 
     private func maybeSaveProgress() {

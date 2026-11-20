@@ -14,7 +14,9 @@ struct PickedMovie: Identifiable {
 /// 只有前者能拿到 `NSItemProvider.suggestedName`（= 相册里的原文件名），
 /// 而且它在独立进程里选片，**不需要相册权限**也不会弹授权框。
 struct PhotoPickerSheet: UIViewControllerRepresentable {
-    var onPicked: ([PickedMovie]) -> Void
+    /// movies：搬好的临时文件；failed：没能读取的个数（iCloud 没下载完、转码失败等）。
+    /// 以前只回 movies，失败被静默吞掉，选择器一关什么也没发生。
+    var onPicked: ([PickedMovie], Int) -> Void
 
     func makeUIViewController(context: Context) -> PHPickerViewController {
         var config = PHPickerConfiguration(photoLibrary: .shared())
@@ -45,16 +47,23 @@ struct PhotoPickerSheet: UIViewControllerRepresentable {
             let group = DispatchGroup()
             let lock = NSLock()
             var picked: [PickedMovie] = []
+            var failed = 0
 
             for result in results {
                 let provider = result.itemProvider
-                guard provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) else { continue }
+                guard provider.hasItemConformingToTypeIdentifier(UTType.movie.identifier) else {
+                    lock.lock(); failed += 1; lock.unlock()
+                    continue
+                }
 
                 group.enter()
                 provider.loadFileRepresentation(forTypeIdentifier: UTType.movie.identifier) { url, _ in
                     defer { group.leave() }
                     // 这个 url 出了回调就失效，必须当场复制到临时目录
-                    guard let url, let copy = Self.stage(url, provider: provider) else { return }
+                    guard let url, let copy = Self.stage(url, provider: provider) else {
+                        lock.lock(); failed += 1; lock.unlock()
+                        return
+                    }
                     lock.lock()
                     picked.append(copy)
                     lock.unlock()
@@ -62,7 +71,7 @@ struct PhotoPickerSheet: UIViewControllerRepresentable {
             }
 
             group.notify(queue: .main) {
-                self.parent.onPicked(picked)
+                self.parent.onPicked(picked, failed)
             }
         }
 
