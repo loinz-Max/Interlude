@@ -274,10 +274,6 @@ struct LibraryView: View {
             library.reload()
             progress.refresh()
         }
-        // 文件选择器单独挂在看不见的子视图上，不和下面那串 sheet 抢同一个呈现上下文
-        .background {
-            FileImportPresenter(isPresented: $showFileImporter, onResult: handleFileImport)
-        }
         .sheet(isPresented: $showPhotoPicker) {
             // 用 PHPicker 才能拿到相册里的原文件名
             PhotoPickerSheet { movies, failed in
@@ -962,6 +958,11 @@ struct LibraryView: View {
                 )
             }
             .ignoresSafeArea()
+            // 文件选择器挂在这一层：body 那条修饰符链已经长到让类型检查器吃紧，
+            // 再加一个 .background 就编不过了（error: unable to type-check in reasonable time）
+            .background {
+                FileImportPresenter(isPresented: $showFileImporter, onResult: handleFileImport)
+            }
     }
 
     // MARK: - 浮层
