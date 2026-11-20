@@ -4,7 +4,7 @@
   <img src="LocalPlayer/Assets.xcassets/AppIcon.appiconset/icon-1024.png" width="104" alt="幕间：深色背景上的棱镜">
 </p>
 
-![version](https://img.shields.io/badge/version-0.3.5-blue)
+![version](https://img.shields.io/badge/version-0.3.6-blue)
 ![platform](https://img.shields.io/badge/iOS-17.0%2B-informational)
 ![license](https://img.shields.io/github/license/loinz-Max/Interlude)
 
