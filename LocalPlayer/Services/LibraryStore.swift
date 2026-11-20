@@ -167,6 +167,11 @@ final class LibraryStore: ObservableObject {
     /// 收结果、推进度（`@Published` 必须回到主 actor 才能改）。
     /// 之前 `copyItem` 是同步执行的，大文件会冻界面。
     @MainActor
+    /// 整个方法挂在主 actor 上：里面要改 `importProgress` 等 @Published 状态，
+    /// 而它以前是从一个没有 actor 的 Task 里调用的，发布通知发在后台线程上，
+    /// 导入进度条和结束提示都可能不出现。真正的耗时操作（拷贝、扫描）仍是
+    /// 各走各的后台，主线程只负责写状态。
+    @MainActor
     func importItems(_ items: [ImportItem]) async -> ImportResult {
         guard !items.isEmpty else { return ImportResult() }
 
@@ -183,7 +188,9 @@ final class LibraryStore: ObservableObject {
             // 把幕间自己的文件再导入一次。以前这种情况会生成「名字 (2)」，
             // 用户的感受就是「导入进来两份」。
             if let relative = VideoItem.relativePath(of: item.url, in: documents), !relative.isEmpty {
-                result.copied += 1
+                // 已经在资料库里：不拷第二份，但也不能算成「导入成功」——
+                // 界面上不会多出任何东西，说「导入 1 个」等于骗人。
+                result.existing += 1
                 result.saved.append(item.url)
             } else {
                 let one = await ImportService.bring(item, into: target)
