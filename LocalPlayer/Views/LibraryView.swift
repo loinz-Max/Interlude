@@ -1041,7 +1041,9 @@ struct LibraryView: View {
         // 以前这里是不带 actor 的 Task，落回主线程的时机不确定，提示有时根本不出现。
         Task { @MainActor in
             ImportLog.write("C1 开始导入 \(urls.count) 个")
-            let outcome = await library.importItems(urls.map { ImportItem(url: $0) })
+            // asCopy: true 给的是系统复制到 tmp 的副本：直接搬进资料库，
+            // 不必再拷一遍（大文件能省一次完整拷贝）
+            let outcome = await library.importItems(urls.map { ImportItem(url: $0, moving: true) })
             ImportLog.write("C3 导入结束：拷贝 \(outcome.copied)，已在库 \(outcome.existing)，失败 \(outcome.failed)")
             toast(outcome.summary)
         }

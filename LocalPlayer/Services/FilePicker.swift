@@ -35,13 +35,21 @@ final class FilePicker: NSObject, UIDocumentPickerDelegate {
 
         self.completion = completion
 
-        // asCopy: false —— 拿安全作用域 URL 自己拷，避免系统先替我们拷一份大的
+        // asCopy 必须为 true。
+        //
+        // 用 false（原地打开）时，系统需要为选中的文件签发一条沙盒扩展；签不出来
+        // 就会把"点打开"当成"取消"——真机上表现为 documentPickerWasCancelled 而不是
+        // didPickDocumentsAt，界面看起来就是"选了没反应"。日志里已经实测到这一点
+        // （点「打开」→ 回调 B2 取消）。
+        //
+        // asCopy: true 由系统先把文件复制到我们的 tmp 目录，拿到的是自己容器里的
+        // 普通文件，不需要任何权限协商。代价是它和"多选"互斥，所以这里是单选。
         let picker = UIDocumentPickerViewController(
-            forOpeningContentTypes: [.movie, .video, .item],
-            asCopy: false
+            forOpeningContentTypes: [.movie, .video],
+            asCopy: true
         )
         picker.delegate = self
-        picker.allowsMultipleSelection = true
+        picker.allowsMultipleSelection = false
         host.present(picker, animated: true) {
             ImportLog.write("A2 选择器已上屏")
         }
