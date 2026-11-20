@@ -41,6 +41,16 @@ struct ImportResult: Equatable, Sendable {
         guard !parts.isEmpty else { return "没有导入成功" }
         return parts.joined(separator: "，")
     }
+
+    /// 需要解释一句时才返回文案；全部导入成功返回 nil。
+    ///
+    /// 成功的反馈是「列表里多出卡片」，再在底部说一句「导入 1 个」是重复的。
+    /// 真正要说的是三种情况：有失败、有文件本来就在库里（所以画面没变化）、
+    /// 或者一个都没进来。
+    var notice: String? {
+        if failed > 0 || existing > 0 || copied == 0 { return summary }
+        return nil
+    }
 }
 
 /// 待搬进资料库的一个文件

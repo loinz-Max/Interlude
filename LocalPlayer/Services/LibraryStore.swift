@@ -28,6 +28,7 @@ final class LibraryStore: ObservableObject {
 
     init() {
         documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        removeLegacyDiagnostics()
         loadFolderNames()
         reload()
         startWatching()
@@ -36,6 +37,14 @@ final class LibraryStore: ObservableObject {
     deinit {
         watcher?.cancel()
         reloadWorkItem?.cancel()
+    }
+
+    /// 早期版本在资料库里写过「导入诊断.txt」用于排障。诊断已经去掉，
+    /// 这里把老版本留下的那一个文件清掉——只认这一个固定文件名，不碰别的。
+    private func removeLegacyDiagnostics() {
+        let url = documents.appendingPathComponent("导入诊断.txt")
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        try? FileManager.default.removeItem(at: url)
     }
 
     // MARK: - 目录监听
@@ -172,7 +181,6 @@ final class LibraryStore: ObservableObject {
 
         let target = currentFolder.map { documents.appendingPathComponent($0, isDirectory: true) } ?? documents
         try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
-        ImportLog.write("C2 目标目录 = \(target.lastPathComponent)")
 
         var result = ImportResult()
         result.total = items.count
@@ -188,13 +196,11 @@ final class LibraryStore: ObservableObject {
                 // 界面上不会多出任何东西，说「导入 1 个」等于骗人。
                 result.existing += 1
                 result.saved.append(item.url)
-                ImportLog.write("     · \(item.url.lastPathComponent)：已在资料库")
             } else if let duplicate = existingDuplicate(of: item) {
                 // 选择器给的是 tmp 副本，路径已经不在资料库里了；靠同名 + 同大小
                 // 认出「就是库里那一部」，避免又拷一份进去变成「名字 (2)」。
                 result.existing += 1
                 result.saved.append(duplicate.url)
-                ImportLog.write("     · \(item.url.lastPathComponent)：库里已有同名同大小，跳过")
             } else {
                 let one = await ImportService.bring(item, into: target)
                 result.copied += one.copied
@@ -202,7 +208,6 @@ final class LibraryStore: ObservableObject {
                 result.failed += one.failed
                 result.saved += one.saved
                 if result.reason == nil { result.reason = one.reason }
-                ImportLog.write("     · \(item.url.lastPathComponent)：拷贝 \(one.copied) 失败 \(one.failed)\(one.reason.map { "（\($0)）" } ?? "")")
             }
             importProgress = ImportProgress(done: index + 1, total: items.count)
         }
