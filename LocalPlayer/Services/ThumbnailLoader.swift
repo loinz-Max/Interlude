@@ -15,6 +15,13 @@ final class ThumbnailLoader {
         cache.object(forKey: key as NSString)
     }
 
+    /// 缓存键必须带尺寸。卡片按 640×360 生成，锁屏封面按 512×512 生成；
+    /// 只用 `item.id` 做键时，先到的那张会被另一处直接命中——封面拿到卡片图会糊，
+    /// 卡片拿到封面图会被放大。
+    private func key(for item: VideoItem, size: CGSize) -> String {
+        "\(item.id)@\(Int(size.width))x\(Int(size.height))"
+    }
+
     /// 卡片副标题要显示时长，这里单独缓存一份，避免每张卡都去解析一次 Asset
     func duration(for item: VideoItem) async -> Double? {
         if let hit = durationCache.object(forKey: item.id as NSString) { return hit.doubleValue }
@@ -28,22 +35,23 @@ final class ThumbnailLoader {
     }
 
     func load(for item: VideoItem, size: CGSize, completion: @escaping (UIImage?) -> Void) {
-        if let image = cached(for: item.id) {
+        let key = key(for: item, size: size)
+        if let image = cached(for: key) {
             completion(image)
             return
         }
         lock.lock()
-        if inFlight.contains(item.id) {
+        if inFlight.contains(key) {
             // 已经有人在生成，挂到同一个等待队列，避免重复解码
-            pending[item.id, default: []].append(completion)
+            pending[key, default: []].append(completion)
             lock.unlock()
             return
         }
-        inFlight.insert(item.id)
+        inFlight.insert(key)
         lock.unlock()
 
         guard item.systemPlayable else {
-            lock.lock(); inFlight.remove(item.id); lock.unlock()
+            lock.lock(); inFlight.remove(key); lock.unlock()
             completion(nil)
             return
         }
@@ -53,12 +61,12 @@ final class ThumbnailLoader {
             guard let self else { return }
 
             self.lock.lock()
-            self.inFlight.remove(item.id)
-            let waiters = self.pending.removeValue(forKey: item.id) ?? []
+            self.inFlight.remove(key)
+            let waiters = self.pending.removeValue(forKey: key) ?? []
             self.lock.unlock()
 
             if let image {
-                self.cache.setObject(image, forKey: item.id as NSString)
+                self.cache.setObject(image, forKey: key as NSString)
             }
             await MainActor.run {
                 completion(image)
@@ -98,8 +106,14 @@ final class ThumbnailLoader {
         return nil
     }
 
+    /// 清完要发一条通知：屏幕上已经加载好的卡片不会自己重新取图，
+    /// 不重建列表的话「清理缩略图缓存」按下去看起来什么也没发生，
+    /// 得重启 App 才会重新生成。
+    static let clearedNotification = Notification.Name("thumbnailCacheCleared")
+
     func clear() {
         cache.removeAllObjects()
         durationCache.removeAllObjects()
+        NotificationCenter.default.post(name: Self.clearedNotification, object: nil)
     }
 }

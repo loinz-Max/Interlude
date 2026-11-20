@@ -55,11 +55,6 @@ struct LibraryView: View {
     @State private var showNewFolder = false
     @State private var newFolderName = ""
 
-    /// 搜索态：顶栏变输入框，结果跨整个资料库
-    @State private var searching = false
-    @State private var searchText = ""
-    @FocusState private var searchFocused: Bool
-
     @State private var popup: LibraryPopup?
     @State private var target: CardTarget?
     @State private var folderTarget: FolderTarget?
@@ -67,7 +62,8 @@ struct LibraryView: View {
     @State private var menuGuard = Date.distantPast
     @State private var cardFrames: [String: CGRect] = [:]
     @State private var folderFrames: [String: CGRect] = [:]
-    /// 刷新缩略图时递增，用来强制 LazyVGrid 重建、重新生成缩略图
+    /// 清理缩略图缓存后递增：给列表挂 `.id`，逼它重建、重新取图。
+    /// 视图不重建的话，`ThumbnailView` 里已经加载好的 `image` 会一直留着。
     @State private var refreshToken = 0
 
     @State private var renaming: VideoItem?
@@ -102,7 +98,7 @@ struct LibraryView: View {
 
                 VStack(spacing: 0) {
                     topBar
-                    if library.currentFolder != nil && !searching { breadcrumb }
+                    if library.currentFolder != nil { breadcrumb }
                     content
                 }
 
@@ -209,6 +205,23 @@ struct LibraryView: View {
             let queue = (note.userInfo?["queue"] as? [VideoItem]) ?? [item]
             startPlaying(item, queue: queue)
         }
+        // 在「文件」App 里长按视频选「用幕间打开」，或其它 App 的「用其他应用打开」：
+        // 系统把文件 URL 交给 App，这里先收进缓冲区，再由视图取走导入。
+        // 以前没有这条通路，文件送进来毫无反应——App 只是被拉起来，什么也没发生。
+        .onOpenURL { url in
+            OpenInbox.shared.receive(url)
+        }
+        .onReceive(OpenInbox.shared.$pending) { urls in
+            guard !urls.isEmpty else { return }
+            // 取走（会改 @Published）和导入都推到下一拍，
+            // 否则就是在视图更新过程中改状态
+            DispatchQueue.main.async { drainOpenInbox() }
+        }
+        // 设置里点了「清理缩略图缓存」：重建列表，让每张卡重新生成缩略图。
+        // 不重建的话内存里的旧图还挂着，只有重启 App 才会变。
+        .onReceive(NotificationCenter.default.publisher(for: ThumbnailLoader.clearedNotification)) { _ in
+            refreshToken += 1
+        }
         // 导入进度贴在底部，不铺遮罩：导入期间照样能滑、能点开视频。
         // 位置和 toast 一致，导入结束的汇总提示正好接在同一处。
         .overlay(alignment: .bottom) {
@@ -229,6 +242,9 @@ struct LibraryView: View {
             library.reload()
             progress.refresh()
             applyDebugRoute()
+            // 冷启动被「用幕间打开」拉起来时，URL 往往在视图出现之前就到了，
+            // 那时 onReceive 还没订阅上，只能在这里补一次
+            drainOpenInbox()
         }
         .onChange(of: scenePhase) { _, phase in
             // 从爱思助手 / 文件 App / iCloud 拷完文件切回来，重新扫一遍
@@ -329,84 +345,32 @@ struct LibraryView: View {
     // MARK: - 顶栏
 
     private var topBar: some View {
-        Group {
-            if searching {
-                searchBar
-            } else {
-                // 标题单独占一层固定在屏幕正中，不随两侧按钮数量偏移
-                ZStack {
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(Palette.text)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                        .padding(.horizontal, 92)
+        // 标题单独占一层固定在屏幕正中，不随两侧按钮数量偏移
+        ZStack {
+            Text(title)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(Palette.text)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 92)
 
-                    HStack(spacing: 8) {
-                        GlassIconButton(systemName: "gearshape", size: 36, iconSize: 17) {
-                            showSettings = true
-                        }
+            HStack(spacing: 8) {
+                GlassIconButton(systemName: "gearshape", size: 36, iconSize: 17) {
+                    showSettings = true
+                }
 
-                        Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-                        GlassIconButton(systemName: "arrow.down.doc", size: 36, iconSize: 17) {
-                            popup = popup == .importing ? nil : .importing
-                        }
-                        GlassIconButton(systemName: "ellipsis", size: 36, iconSize: 17) {
-                            popup = popup == .more ? nil : .more
-                        }
-                    }
+                GlassIconButton(systemName: "arrow.down.doc", size: 36, iconSize: 17) {
+                    popup = popup == .importing ? nil : .importing
+                }
+                GlassIconButton(systemName: "ellipsis", size: 36, iconSize: 17) {
+                    popup = popup == .more ? nil : .more
                 }
             }
         }
         .padding(.horizontal, sidePadding)
         .frame(height: 54)
-    }
-
-    private var searchBar: some View {
-        HStack(spacing: 10) {
-            HStack(spacing: 7) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(Palette.tertiaryText)
-
-                TextField("搜索全部视频", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 15))
-                    .foregroundStyle(Palette.text)
-                    .tint(Palette.accent)
-                    .focused($searchFocused)
-                    .submitLabel(.search)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-
-                if !searchText.isEmpty {
-                    Button {
-                        searchText = ""
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(Palette.tertiaryText)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, 12)
-            .frame(height: 36)
-            .background {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.08))
-            }
-
-            Button {
-                endSearch()
-            } label: {
-                Text("取消")
-                    .font(.system(size: 15))
-                    .foregroundStyle(Palette.accent)
-            }
-            .buttonStyle(.plain)
-        }
     }
 
     private var title: String {
@@ -440,9 +404,7 @@ struct LibraryView: View {
 
     private var content: some View {
         Group {
-            if searching {
-                searchContent
-            } else if library.subfolders.isEmpty && sortedVideos.isEmpty {
+            if library.subfolders.isEmpty && sortedVideos.isEmpty {
                 emptyState
             } else if settings.libraryView == .list {
                 videoList
@@ -452,30 +414,6 @@ struct LibraryView: View {
         }
         .onPreferenceChange(CardFrameKey.self) { cardFrames = $0 }
         .onPreferenceChange(FolderFrameKey.self) { folderFrames = $0 }
-    }
-
-    /// 搜索态下的三种结果：还没输入 / 没有匹配 / 有结果
-    private var searchContent: some View {
-        Group {
-            if trimmedQuery.isEmpty {
-                searchHint
-            } else if searchResults.isEmpty {
-                searchNoResults
-            } else if settings.libraryView == .list {
-                videoList
-            } else {
-                grid
-            }
-        }
-    }
-
-    /// 搜索时跨整个资料库，平时只看当前目录
-    private var activeVideos: [VideoItem] {
-        searching ? searchResults : sortedVideos
-    }
-
-    private var activeFolders: [String] {
-        searching ? [] : library.subfolders
     }
 
     private var grid: some View {
@@ -488,7 +426,7 @@ struct LibraryView: View {
                 alignment: .leading,
                 spacing: rowSpacing
             ) {
-                ForEach(activeFolders, id: \.self) { folder in
+                ForEach(library.subfolders, id: \.self) { folder in
                     FolderCard(
                         name: library.displayName(forFolder: folder),
                         count: count(in: folder)
@@ -514,7 +452,7 @@ struct LibraryView: View {
                     .opacity(folderTarget?.path == folder ? 0 : 1)
                 }
 
-                ForEach(activeVideos) { item in
+                ForEach(sortedVideos) { item in
                     card(item)
                 }
             }
@@ -523,7 +461,6 @@ struct LibraryView: View {
             .padding(.top, 14)
             .padding(.bottom, 40)
         }
-        .scrollDismissesKeyboard(.immediately)
         .refreshable {
             // 下拉兜底：文件系统监听万一没收到事件，手动也能拉一次
             library.reload()
@@ -537,8 +474,7 @@ struct LibraryView: View {
             fraction: progress.progressFraction(for: item.id),
             watched: progress.isWatched(item.id),
             active: target?.item.id == item.id,
-            selected: selection.contains(item.id),
-            folderName: searching ? folderLabel(for: item) : nil
+            selected: selection.contains(item.id)
         )
         .background {
             GeometryReader { geo in
@@ -556,7 +492,7 @@ struct LibraryView: View {
             if target != nil || folderTarget != nil {
                 if Date().timeIntervalSince(menuGuard) > 0.35 { closeMenus() }
             } else {
-                startPlaying(item, queue: activeVideos)
+                startPlaying(item, queue: sortedVideos)
             }
         }
         .onLongPressGesture(minimumDuration: 0.38) {
@@ -575,7 +511,7 @@ struct LibraryView: View {
     private var videoList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
-                ForEach(activeFolders, id: \.self) { folder in
+                ForEach(library.subfolders, id: \.self) { folder in
                     folderRow(folder)
                     Rectangle()
                         .fill(Palette.hairline)
@@ -583,7 +519,7 @@ struct LibraryView: View {
                         .padding(.leading, sidePadding + 108)
                 }
 
-                ForEach(activeVideos) { item in
+                ForEach(sortedVideos) { item in
                     listRow(item)
                     Rectangle()
                         .fill(Palette.hairline)
@@ -591,11 +527,11 @@ struct LibraryView: View {
                         .padding(.leading, sidePadding + 108)
                 }
             }
+            .id(refreshToken)
             .padding(.horizontal, sidePadding)
             .padding(.top, 8)
             .padding(.bottom, selecting ? 96 : 40)
         }
-        .scrollDismissesKeyboard(.immediately)
         .refreshable {
             library.reload()
             progress.refresh()
@@ -649,8 +585,7 @@ struct LibraryView: View {
             item: item,
             fraction: progress.progressFraction(for: item.id),
             watched: progress.isWatched(item.id),
-            selected: selection.contains(item.id),
-            folderName: searching ? folderLabel(for: item) : nil
+            selected: selection.contains(item.id)
         )
         .background {
             GeometryReader { geo in
@@ -668,7 +603,7 @@ struct LibraryView: View {
             if target != nil || folderTarget != nil {
                 if Date().timeIntervalSince(menuGuard) > 0.35 { closeMenus() }
             } else {
-                startPlaying(item, queue: activeVideos)
+                startPlaying(item, queue: sortedVideos)
             }
         }
         .onLongPressGesture(minimumDuration: 0.38) {
@@ -798,88 +733,7 @@ struct LibraryView: View {
         library.allItems.filter { $0.folder == folder || $0.folder.hasPrefix(folder + "/") }.count
     }
 
-    // MARK: - 搜索
-
-    private var trimmedQuery: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    /// 跨整个资料库的按名搜索，结果按名称自然序
-    private var searchResults: [VideoItem] {
-        let q = trimmedQuery
-        guard !q.isEmpty else { return [] }
-        return library.allItems
-            .filter {
-                $0.displayName.localizedCaseInsensitiveContains(q)
-                    || $0.relativePath.localizedCaseInsensitiveContains(q)
-            }
-            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    private func folderLabel(for item: VideoItem) -> String {
-        item.folder.isEmpty ? "根目录" : library.displayName(forFolder: item.folder)
-    }
-
-    private func beginSearch() {
-        popup = nil
-        closeMenus()
-        if selecting { exitSelection() }
-        withAnimation(.easeOut(duration: 0.16)) { searching = true }
-        // 等顶栏换成输入框之后再抢焦点，否则焦点会落在已经消失的视图上
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { searchFocused = true }
-    }
-
-    private func endSearch() {
-        searchFocused = false
-        withAnimation(.easeOut(duration: 0.16)) {
-            searching = false
-            searchText = ""
-        }
-    }
-
-    private var searchHint: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 34, weight: .light))
-                .foregroundStyle(Palette.tertiaryText)
-
-            Text("搜索全部视频")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.text)
-                .padding(.top, 2)
-
-            Text("资料库里共 \(library.allItems.count) 个视频\n按文件名搜索，不受当前文件夹限制")
-                .font(.system(size: 12.5))
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
-                .foregroundStyle(Palette.tertiaryText)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 40)
-        .padding(.bottom, 80)
-    }
-
-    private var searchNoResults: some View {
-        VStack(spacing: 10) {
-            Image(systemName: "questionmark.folder")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(Palette.tertiaryText)
-
-            Text("没有匹配的视频")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Palette.text)
-                .padding(.top, 2)
-
-            Text("「\(trimmedQuery)」在 \(library.allItems.count) 个视频里都没找到\n换个关键词试试")
-                .font(.system(size: 12.5))
-                .multilineTextAlignment(.center)
-                .lineSpacing(3)
-                .foregroundStyle(Palette.tertiaryText)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.horizontal, 40)
-        .padding(.bottom, 80)
-    }
+    // MARK: - 排序
 
     /// 文件夹排在前面，视频按当前排序规则（名称 / 日期）
     private var sortedVideos: [VideoItem] {
@@ -1182,6 +1036,26 @@ struct LibraryView: View {
         }
     }
 
+    /// 「用幕间打开」送进来的文件：导入当前目录；只有一个文件、系统能直接播时顺手播它
+    private func drainOpenInbox() {
+        let urls = OpenInbox.shared.take()
+        guard !urls.isEmpty else { return }
+        Task {
+            let outcome = await library.importItems(urls.map { ImportItem(url: $0) })
+            toast(outcome.summary)
+
+            // 用户点「用幕间打开」就是为了看这个文件，导入完直接进播放页。
+            // 多选、格式不支持（mkv 之类）、或当前已经在看别的片，都不打断。
+            guard urls.count == 1,
+                  let saved = outcome.saved.first,
+                  let item = VideoItem(url: saved, documents: library.documents),
+                  item.systemPlayable,
+                  playingItem == nil else { return }
+            let queue = sortedVideos.contains { $0.id == item.id } ? sortedVideos : [item]
+            startPlaying(item, queue: queue)
+        }
+    }
+
     private func importMovies(_ movies: [PickedMovie]) {
         guard !movies.isEmpty else { return }
         Task {
@@ -1233,9 +1107,6 @@ struct LibraryView: View {
                 if let first = library.subfolders.first { library.currentFolder = first }
             case "settings":
                 showSettings = true
-            case "search":
-                searchText = DebugSeed.argument(after: "-query") ?? "示例"
-                beginSearch()
             case "foldermenu":
                 // 等卡片布局完成、folderFrames 有值之后再弹菜单，否则锚点是 .zero
                 if let first = library.subfolders.first {
