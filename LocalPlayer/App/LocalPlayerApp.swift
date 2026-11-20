@@ -11,6 +11,9 @@ struct LocalPlayerApp: App {
     @StateObject private var settings = AppSettings()
 
     init() {
+        // 诊断用：每次启动记一行版本与构建号
+        ImportLog.session()
+
         #if DEBUG
         // 模拟器截图用：按启动参数生成示例视频
         DebugSeed.runIfNeeded()

@@ -172,6 +172,7 @@ final class LibraryStore: ObservableObject {
 
         let target = currentFolder.map { documents.appendingPathComponent($0, isDirectory: true) } ?? documents
         try? FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        ImportLog.write("C2 目标目录 = \(target.lastPathComponent)")
 
         var result = ImportResult()
         result.total = items.count
@@ -187,6 +188,7 @@ final class LibraryStore: ObservableObject {
                 // 界面上不会多出任何东西，说「导入 1 个」等于骗人。
                 result.existing += 1
                 result.saved.append(item.url)
+                ImportLog.write("     · \(item.url.lastPathComponent)：已在资料库")
             } else {
                 let one = await ImportService.bring(item, into: target)
                 result.copied += one.copied
@@ -194,6 +196,7 @@ final class LibraryStore: ObservableObject {
                 result.failed += one.failed
                 result.saved += one.saved
                 if result.reason == nil { result.reason = one.reason }
+                ImportLog.write("     · \(item.url.lastPathComponent)：拷贝 \(one.copied) 失败 \(one.failed)\(one.reason.map { "（\($0)）" } ?? "")")
             }
             importProgress = ImportProgress(done: index + 1, total: items.count)
         }

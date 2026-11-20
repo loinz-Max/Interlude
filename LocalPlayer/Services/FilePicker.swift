@@ -22,11 +22,16 @@ final class FilePicker: NSObject, UIDocumentPickerDelegate {
     /// 弹出选择器。回调在主线程；取消时回调空数组。
     func present(completion: @escaping ([URL]) -> Void) {
         guard let host = Self.topViewController() else {
+            ImportLog.write("A1 呈现失败：找不到可用的宿主控制器")
             completion([])
             return
         }
         // 已经有一个呈现挂在上面时不要再叠：连点两下不该弹出两个选择器
-        guard host.presentedViewController == nil else { return }
+        guard host.presentedViewController == nil else {
+            ImportLog.write("A1 放弃呈现：宿主上已有呈现 \(type(of: host.presentedViewController!))")
+            return
+        }
+        ImportLog.write("A1 准备呈现，宿主 = \(type(of: host))")
 
         self.completion = completion
 
@@ -37,10 +42,17 @@ final class FilePicker: NSObject, UIDocumentPickerDelegate {
         )
         picker.delegate = self
         picker.allowsMultipleSelection = true
-        host.present(picker, animated: true)
+        host.present(picker, animated: true) {
+            ImportLog.write("A2 选择器已上屏")
+        }
     }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        ImportLog.write("B1 didPickDocumentsAt：\(urls.count) 个")
+        for url in urls {
+            let exists = FileManager.default.fileExists(atPath: url.path)
+            ImportLog.write("     · \(url.lastPathComponent) 存在=\(exists)")
+        }
         let done = completion
         completion = nil
         // 大多数系统版本会自己收回；这里再兜一次，免得停在原地让人以为没选中
@@ -49,6 +61,7 @@ final class FilePicker: NSObject, UIDocumentPickerDelegate {
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        ImportLog.write("B2 documentPickerWasCancelled（用户取消）")
         completion = nil
     }
 
