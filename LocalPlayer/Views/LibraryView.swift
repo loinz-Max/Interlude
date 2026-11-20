@@ -220,17 +220,8 @@ struct LibraryView: View {
         .onReceive(NotificationCenter.default.publisher(for: ThumbnailLoader.clearedNotification)) { _ in
             refreshToken += 1
         }
-        // 导入进度贴在底部，不铺遮罩：导入期间照样能滑、能点开视频。
-        // 位置和 toast 一致，导入结束的汇总提示正好接在同一处。
-        .overlay(alignment: .bottom) {
-            if let importProgress = library.importProgress {
-                ImportProgressHUD(progress: importProgress)
-                    .padding(.bottom, selecting ? 92 : 28)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .zIndex(20)
-            }
-        }
-        .animation(.easeOut(duration: 0.22), value: library.importProgress == nil)
+        // 导入不挂进度浮层：同盘 move 几十毫秒就完，弹一下又收掉只是打断。
+        // 结果的反馈是列表里多出那张卡片；出错会有提示说明原因。
         .overlay(alignment: .bottom) {
             if selecting {
                 selectionBar

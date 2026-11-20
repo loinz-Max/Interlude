@@ -1,19 +1,7 @@
 import Foundation
 
-/// 一次导入的进度：总共几个、搬完几个
-struct ImportProgress: Equatable, Sendable {
-    var done: Int
-    var total: Int
-
-    var fraction: Double {
-        guard total > 0 else { return 0 }
-        return min(1, max(0, Double(done) / Double(total)))
-    }
-}
-
 /// 导入结果。同名文件会被自动改成「名字 2」，单独计数，好在提示里说清楚。
 struct ImportResult: Equatable, Sendable {
-    var total = 0
     var copied = 0
     var renamed = 0
     var failed = 0
@@ -95,7 +83,7 @@ enum ImportService {
         // 用户只看到「没有导入成功」，不知道该改什么。这里直接说清楚。
         guard !ext.isEmpty, VideoItem.videoExtensions.contains(ext) else {
             return ImportResult(
-                total: 1, copied: 0, renamed: 0, failed: 1,
+                copied: 0, renamed: 0, failed: 1,
                 reason: "「\(preferred)」不是支持的视频格式"
             )
         }
@@ -110,14 +98,14 @@ enum ImportService {
             }
         } catch {
             return ImportResult(
-                total: 1, copied: 0, renamed: 0, failed: 1,
+                copied: 0, renamed: 0, failed: 1,
                 reason: error.localizedDescription
             )
         }
 
         let renamed = destination.lastPathComponent != preferred
         return ImportResult(
-            total: 1, copied: 1, renamed: renamed ? 1 : 0, failed: 0,
+            copied: 1, renamed: renamed ? 1 : 0, failed: 0,
             saved: [destination]
         )
     }
