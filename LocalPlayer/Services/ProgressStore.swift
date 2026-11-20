@@ -103,7 +103,19 @@ final class ProgressStore: ObservableObject {
     /// （例如调试脚本预置数据、或将来做 iCloud/文件同步）。正常使用时是幂等的。
     func refresh() { load() }
 
+    /// 一次交互里常常连着改好几项：记进度、标已看、再把自己挪到最近播放队首。
+    /// 每改一次就全量编码写一遍没必要，合并到这一轮 runloop 结束前写一次。
+    /// 只推迟一帧，被强杀也丢不了什么。
+    private var needsSave = false
+
     private func save() {
+        guard !needsSave else { return }
+        needsSave = true
+        DispatchQueue.main.async { [weak self] in self?.flush() }
+    }
+
+    private func flush() {
+        needsSave = false
         let snap = Snapshot(
             positions: positions,
             totals: totals,

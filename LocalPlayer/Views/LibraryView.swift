@@ -33,6 +33,29 @@ private struct FolderFrameKey: PreferenceKey {
     }
 }
 
+/// 「从文件导入」的选择器宿主。
+///
+/// 一个视图只该挂一个 presentation。`LibraryView` 身上已经有三个 `.sheet`
+/// 加一串 `.alert`，再把 `.fileImporter` 也挂上去，等于四个呈现挤同一处——
+/// SwiftUI 对这种写法没有定义，症状就是「点了不弹」或「选完回调不来」。
+/// 这里把 importer 单独挂到一个看不见的子视图上，各走各的上下文。
+private struct FileImportPresenter: View {
+    @Binding var isPresented: Bool
+    var onResult: (Result<[URL], Error>) -> Void
+
+    var body: some View {
+        Color.clear
+            .frame(width: 1, height: 1)
+            .allowsHitTesting(false)
+            .fileImporter(
+                isPresented: $isPresented,
+                allowedContentTypes: [.movie, .video, .item],
+                allowsMultipleSelection: true,
+                onCompletion: onResult
+            )
+    }
+}
+
 // MARK: - 资料库
 
 struct LibraryView: View {
@@ -251,19 +274,17 @@ struct LibraryView: View {
             library.reload()
             progress.refresh()
         }
-        .fileImporter(
-            isPresented: $showFileImporter,
-            allowedContentTypes: [.movie, .video, .item],
-            allowsMultipleSelection: true
-        ) { result in
-            handleFileImport(result)
-        }
         .sheet(isPresented: $showPhotoPicker) {
             // 用 PHPicker 才能拿到相册里的原文件名
-            PhotoPickerSheet { movies in
+            PhotoPickerSheet { movies, failed in
                 showPhotoPicker = false
-                guard !movies.isEmpty else { return }
-                importMovies(movies)
+                // 以前这里是 `guard !movies.isEmpty else { return }`：
+                // 全部读失败时选择器一关，用户什么都看不到
+                if movies.isEmpty {
+                    toast(failed > 0 ? "\(failed) 个文件没能读取" : "没有取到可导入的视频")
+                    return
+                }
+                importMovies(movies, failed: failed)
             }
         }
         .alert("新建文件夹", isPresented: $showNewFolder) {
@@ -461,8 +482,9 @@ struct LibraryView: View {
             .padding(.bottom, 40)
         }
         .refreshable {
-            // 下拉兜底：文件系统监听万一没收到事件，手动也能拉一次
-            library.reload()
+            // 下拉兜底：文件系统监听万一没收到事件，手动也能拉一次。
+            // 等扫描落地再收手，转圈的时间才和真正扫盘的时间对得上
+            await library.reload().value
             progress.refresh()
         }
     }
@@ -532,7 +554,7 @@ struct LibraryView: View {
             .padding(.bottom, selecting ? 96 : 40)
         }
         .refreshable {
-            library.reload()
+            await library.reload().value
             progress.refresh()
         }
     }
@@ -623,7 +645,7 @@ struct LibraryView: View {
             Button {
                 toggleSelectAll()
             } label: {
-                Text(selection.count == sortedVideos.count ? "取消全选" : "全选")
+                Text(isAllSelected ? "取消全选" : "全选")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Palette.text)
                     .frame(maxWidth: .infinity)
@@ -697,8 +719,13 @@ struct LibraryView: View {
         }
     }
 
+    /// 目录为空时 0 == 0 也算「全选」是错的：那时候一个都没选
+    private var isAllSelected: Bool {
+        !sortedVideos.isEmpty && selection.count == sortedVideos.count
+    }
+
     private func toggleSelectAll() {
-        if selection.count == sortedVideos.count {
+        if isAllSelected {
             selection.removeAll()
         } else {
             selection = Set(sortedVideos.map(\.id))
@@ -931,6 +958,11 @@ struct LibraryView: View {
                 )
             }
             .ignoresSafeArea()
+            // 文件选择器挂在这一层：body 那条修饰符链已经长到让类型检查器吃紧，
+            // 再加一个 .background 就编不过了（error: unable to type-check in reasonable time）
+            .background {
+                FileImportPresenter(isPresented: $showFileImporter, onResult: handleFileImport)
+            }
     }
 
     // MARK: - 浮层
@@ -1055,13 +1087,14 @@ struct LibraryView: View {
         }
     }
 
-    private func importMovies(_ movies: [PickedMovie]) {
+    private func importMovies(_ movies: [PickedMovie], failed: Int = 0) {
         guard !movies.isEmpty else { return }
         Task {
             let outcome = await library.importItems(
                 movies.map { ImportItem(url: $0.url, preferredName: $0.name, moving: true) }
             )
-            toast(outcome.summary)
+            // 读取阶段就失败的那几个也要说出来，否则「选了 5 个只进来 3 个」没法解释
+            toast(failed > 0 ? "\(outcome.summary)，\(failed) 个没能读取" : outcome.summary)
         }
     }
 

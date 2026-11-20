@@ -67,14 +67,51 @@ final class LibraryStore: ObservableObject {
 
     // MARK: - 扫描
 
-    func reload() {
+    /// 扫描代号：只有最后一次发起的扫描能把结果写回
+    private var scanGeneration = 0
+
+    /// 重新扫一遍资料库。
+    ///
+    /// 枚举与逐文件取属性都挪到后台：几百个视频时这一趟要几十毫秒，而它会被
+    /// 导入结束、文件系统事件、切回前台反复触发，跑在主线程上就是掉帧。
+    ///
+    /// 返回的 Task 可以 `await ...value`——导入完要立刻拿到新条目（比如「用幕间
+    /// 打开」之后要拼播放队列）时用得上。
+    @discardableResult
+    func reload() -> Task<Void, Never> {
+        scanGeneration += 1
+        let generation = scanGeneration
+        let root = documents
+
+        return Task { [weak self] in
+            let scan = await Task.detached(priority: .userInitiated) {
+                LibraryStore.scan(root: root)
+            }.value
+            await MainActor.run {
+                // 批量导入会连着触发好几次，旧的结果盖上来会闪一下
+                guard let self, generation == self.scanGeneration else { return }
+                self.allItems = scan.items
+                self.folders = scan.folders
+                self.totalSize = scan.totalSize
+            }
+        }
+    }
+
+    private struct ScanResult: Sendable {
+        var items: [VideoItem]
+        var folders: [String]
+        var totalSize: Int64
+    }
+
+    /// 在后台线程跑的那部分：只读磁盘，不碰任何 @Published
+    private static func scan(root: URL) -> ScanResult {
         let fm = FileManager.default
         var items: [VideoItem] = []
         var folderSet = Set<String>()
 
         let keys: [URLResourceKey] = [.isDirectoryKey, .isHiddenKey]
         let enumerator = fm.enumerator(
-            at: documents,
+            at: root,
             includingPropertiesForKeys: keys,
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         )
@@ -83,7 +120,7 @@ final class LibraryStore: ObservableObject {
             let values = try? url.resourceValues(forKeys: Set(keys))
             if values?.isDirectory == true {
                 // 同样走 relativePath，避免 /private 前缀导致子目录也算错
-                if let relative = VideoItem.relativePath(of: url, in: documents),
+                if let relative = VideoItem.relativePath(of: url, in: root),
                    !relative.isEmpty,
                    !relative.hasPrefix(".") {
                     folderSet.insert(relative)
@@ -91,15 +128,17 @@ final class LibraryStore: ObservableObject {
                 continue
             }
             if values?.isHidden == true { continue }
-            if let item = VideoItem(url: url, documents: documents) {
+            if let item = VideoItem(url: url, documents: root) {
                 items.append(item)
             }
         }
 
         items.sort { $0.modified > $1.modified }
-        allItems = items
-        folders = folderSet.sorted()
-        totalSize = items.reduce(0) { $0 + $1.fileSize }
+        return ScanResult(
+            items: items,
+            folders: folderSet.sorted(),
+            totalSize: items.reduce(0) { $0 + $1.fileSize }
+        )
     }
 
     // MARK: - 派生数据
@@ -158,7 +197,8 @@ final class LibraryStore: ObservableObject {
         }
 
         importProgress = nil
-        if result.copied > 0 { reload() }
+        // 等这一趟扫完再返回：调用方紧接着就要用 allItems 拼播放队列
+        if result.copied > 0 { await reload().value }
         return result
     }
 
